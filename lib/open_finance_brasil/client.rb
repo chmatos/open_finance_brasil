@@ -3,14 +3,15 @@
 module OpenFinanceBrasil
   class Client
     def initialize(bank_number, client_id, client_secret, cert_pem: nil, cert_key: nil)
-      @env            = ENV.fetch('open_finance_env', 'sandbox')
+      puts '[OFB] Client initialized'
+      @env            = ENV.fetch('OPEN_FINANCE_ENV', 'sandbox')
       @url            = @env == 'production' ? get_url(bank_number) : get_url_sandbox(bank_number)
       @cnpj           = get_cnpj(bank_number)
+      @bank_number    = bank_number
       @client_id      = client_id
       @client_secret  = client_secret
       @cert_path      = certificate_path(cert_pem) if cert_pem
       @cert_key       = cert_key
-      puts '[OFB] Client initialized'
       puts "[OFB] cert_path: #{@cert_path}"
     end
 
@@ -20,22 +21,22 @@ module OpenFinanceBrasil
 
     def env(new_env)
       @env = new_env
-      @url = new_env == 'production' ? get_url(bank_number) : get_url_sandbox(bank_number)
+      @url = new_env == 'production' ? get_url(@bank_number) : get_url_sandbox(@bank_number)
     end
 
     def list_accounts
       puts '[OFB] list_accounts'
-
       get_many("/bank_account_information/v1/banks/#{@cnpj}/accounts")
     end
 
     def account_balance(account_id)
-      'account_balance ok'
+      puts '[OFB] account_balance'
       # get("/accounts/#{account_id}/balance")
     end
 
-    def account_statement(account_id)
-      get("/accounts/#{account_id}/statement")
+    def account_statements(account_id, start_date, end_date)
+      puts '[OFB] account_statements'
+      get_many("/bank_account_information/v1/banks/#{@cnpj}/statements/#{account_id}?initialDate=#{start_date}&finalDate=#{end_date}")
     end
 
     def dda_bills
@@ -72,12 +73,13 @@ module OpenFinanceBrasil
 
     def get(endpoint)
       puts '[OFB] get'
+      puts "[OFB] url: #{@url}"
       puts "[OFB] endpoint: #{endpoint}"
 
       command = <<-CURL
         curl --location "#{@url}#{endpoint}" \
         --cert #{@cert_path} \
-        --header 'X-Application-Key: Ercp72ZAQMRufA9UVhV7oxzeHebVq7Rk' \
+        --header 'X-Application-Key: #{@client_id}' \
         --header 'Authorization: Bearer #{token}'
       CURL
 
@@ -97,27 +99,23 @@ module OpenFinanceBrasil
       request['Authorization'] = "Bearer #{token}"
       request['Content-Type'] = 'application/json'
       request.body = body.to_json
-      send_request(uri, request)
-    end
-
-    def send_request(uri, request)
-      http = Net::HTTP.new(uri.host, uri.port, use_ssl: true)
-      # http.use_ssl = true
-      # if @cert_path
-      #   http.cert = OpenSSL::X509::Certificate.new(@cert_path)
-      #   http.key = OpenSSL::PKey::RSA.new(File.read(@cert_key)) if @cert_key
-      # end
-      response = http.request(request)
-      JSON.parse(response.body)
-    rescue StandardError => e
-      { error: e.message }
+      # send_request(uri, request)
     end
 
     def token
+      puts '[OFB] token'
+      puts "[OFB] @env: #{@env}"
       return @token if @token && @token_expire > Time.now
 
+      url = "#{@url}/auth/oauth/v2/token"
+      puts "[OFB] @url: #{@url}"
+      puts "[OFB]  url: #{url}"
+      puts "[OFB] @client_id: #{@client_id}"
+      puts "[OFB] @client_secret: #{@client_secret}"
+      puts "[OFB] @cert_path: #{@cert_path}"
+
       command = <<-CURL
-        curl --location #{@url}/auth/oauth/v2/token \
+        curl --location #{url} \
         --cert #{@cert_path} \
         --header 'Content-Type: application/x-www-form-urlencoded' \
         --data-urlencode 'client_id=#{@client_id}' \
